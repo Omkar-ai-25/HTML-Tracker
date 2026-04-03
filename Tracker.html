@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Habit Tracker</title>
+    
+    <!-- 1. Styles (Tailwind) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. React Engine -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- 3. Translator (Babel) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        body { background-color: #0a0a0c; color: white; font-family: sans-serif; }
+        /* Smooth animations */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
+        
+        /* Loading Screen */
+        #loading-screen {
+            position: fixed; inset: 0; background: #0a0a0c; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- This shows if React fails to load -->
+    <div id="loading-screen">
+        <h2 style="font-size: 24px; margin-bottom: 10px;">Loading App...</h2>
+        <p style="color: #666; max-width: 300px; text-align: center;">
+            If this takes longer than 5 seconds, please check your internet connection. 
+            This app needs to download React and Tailwind to run.
+        </p>
+    </div>
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // --- SAFEGUARD: Remove loading screen when React starts ---
+        document.getElementById('loading-screen').style.display = 'none';
+
+        const { useState, useEffect } = React;
+        
+        // --- INLINE ICONS ---
+        const IconBase = ({ children, className, ...props }) => (
+            <svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                width="24" 
+                height="24" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2" 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                className={className} 
+                {...props}
+            >
+                {children}
+            </svg>
+        );
+
+        const Plus = (props) => (
+            <IconBase {...props}>
+                <path d="M5 12h14" /><path d="M12 5v14" />
+            </IconBase>
+        );
+
+        const Check = (props) => (
+            <IconBase {...props}>
+                <path d="M20 6 9 17l-5-5" />
+            </IconBase>
+        );
+
+        const Trash2 = (props) => (
+            <IconBase {...props}>
+                <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /><line x1="10" x2="10" y1="11" y2="17" /><line x1="14" x2="14" y1="11" y2="17" />
+            </IconBase>
+        );
+
+        const TrendingUp = (props) => (
+            <IconBase {...props}>
+                <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
+            </IconBase>
+        );
+
+        const Zap = (props) => (
+            <IconBase {...props}>
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </IconBase>
+        );
+
+        const X = (props) => (
+            <IconBase {...props}>
+                <path d="M18 6 6 18" /><path d="M6 6 18 18" />
+            </IconBase>
+        );
+
+        const Home = (props) => (
+            <IconBase {...props}>
+                <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
+            </IconBase>
+        );
+
+        const PieChart = (props) => (
+            <IconBase {...props}>
+                <path d="M21.21 15.89A10 10 0 1 1 8 2.83" /><path d="M22 12A10 10 0 0 0 12 2v10z" />
+            </IconBase>
+        );
+
+        // --- APP LOGIC STARTS HERE ---
+        
+        const WEEK_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+        const getTodayString = () => {
+            const d = new Date();
+            return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        };
+
+        const getCalendarDays = () => {
+            const dates = [];
+            const today = new Date();
+            for (let i = -2; i <= 2; i++) {
+                const d = new Date();
+                d.setDate(today.getDate() + i);
+                dates.push({
+                    date: d.getDate(),
+                    day: WEEK_DAYS[d.getDay()],
+                    isToday: i === 0,
+                    fullDate: d
+                });
+            }
+            return dates;
+        };
+
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('home');
+            const [habits, setHabits] = useState([]);
+            const [history, setHistory] = useState({});
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+            const [loading, setLoading] = useState(true);
+
+            // --- LOAD DATA ---
+            useEffect(() => {
+                try {
+                    const todayStr = getTodayString();
+                    const savedHabits = localStorage.getItem('habit-tracker-habits');
+                    const savedHistory = localStorage.getItem('habit-tracker-history');
+                    const lastOpenDate = localStorage.getItem('habit-tracker-last-date');
+
+                    let parsedHabits = [];
+                    let parsedHistory = {};
+
+                    if (savedHistory) parsedHistory = JSON.parse(savedHistory);
+                    if (savedHabits) {
+                        parsedHabits = JSON.parse(savedHabits);
+                        // Reset completed status if it's a new day
+                        if (lastOpenDate !== todayStr) {
+                            parsedHabits = parsedHabits.map(h => ({ ...h, completed: false }));
+                            localStorage.setItem('habit-tracker-last-date', todayStr);
+                        }
+                    } else {
+                        // Default starter habits with new colors
+                        parsedHabits = [
+                            { id: 1, title: 'Drink Water', category: 'Health', streak: 0, completed: false, color: 'from-cyan-400 to-blue-500' },
+                            { id: 2, title: 'Read Book', category: 'Growth', streak: 0, completed: false, color: 'from-emerald-400 to-green-500' },
+                        ];
+                        localStorage.setItem('habit-tracker-last-date', todayStr);
+                    }
+
+                    setHabits(parsedHabits);
+                    setHistory(parsedHistory);
+                    setLoading(false);
+                } catch (e) {
+                    console.error("Save data error", e);
+                    setLoading(false);
+                }
+            }, []);
+
+            // --- SAVE DATA ---
+            useEffect(() => {
+                if (!loading) {
+                    localStorage.setItem('habit-tracker-habits', JSON.stringify(habits));
+                    localStorage.setItem('habit-tracker-history', JSON.stringify(history));
+                }
+            }, [habits, history, loading]);
+
+            // --- PARALLAX ---
+            useEffect(() => {
+                const handleMouseMove = (e) => {
+                    const x = (e.clientX / window.innerWidth - 0.5) * 20;
+                    const y = (e.clientY / window.innerHeight - 0.5) * 20;
+                    setMousePos({ x, y });
+                };
+                window.addEventListener('mousemove', handleMouseMove);
+                return () => window.removeEventListener('mousemove', handleMouseMove);
+            }, []);
+
+            // --- ACTIONS ---
+            const toggleHabit = (id) => {
+                const todayStr = getTodayString();
+                let delta = 0;
+
+                const newHabits = habits.map(h => {
+                    if (h.id === id) {
+                        const isNowCompleted = !h.completed;
+                        delta = isNowCompleted ? 1 : -1;
+                        return { 
+                            ...h, 
+                            completed: isNowCompleted,
+                            streak: isNowCompleted ? h.streak + 1 : Math.max(0, h.streak - 1)
+                        };
+                    }
+                    return h;
+                });
+
+                setHabits(newHabits);
+                setHistory(prev => {
+                    const currentCount = prev[todayStr] || 0;
+                    return { ...prev, [todayStr]: Math.max(0, currentCount + delta) };
+                });
+            };
+
+            const deleteHabit = (id) => {
+                const habit = habits.find(h => h.id === id);
+                if (habit && habit.completed) {
+                    const todayStr = getTodayString();
+                    setHistory(prev => ({
+                        ...prev,
+                        [todayStr]: Math.max(0, (prev[todayStr] || 0) - 1)
+                    }));
+                }
+                setHabits(habits.filter(h => h.id !== id));
+            };
+
+            const addHabit = (title, category) => {
+                // New Color Map
+                let color = 'from-violet-500 to-purple-600'; 
+                
+                switch(category) {
+                    case 'Health': color = 'from-cyan-400 to-blue-500'; break; // Blue
+                    case 'Mind': color = 'from-red-500 to-rose-600'; break;   // Red
+                    case 'Growth': color = 'from-emerald-400 to-green-500'; break; // Green
+                    case 'Work': color = 'from-violet-500 to-purple-600'; break; // Purple
+                    default: color = 'from-violet-500 to-purple-600';
+                }
+
+                const newHabit = {
+                    id: Date.now(),
+                    title,
+                    category,
+                    streak: 0,
+                    completed: false,
+                    color: color
+                };
+                setHabits([...habits, newHabit]);
+                setIsModalOpen(false);
+            };
+
+            const getWeeklyStats = () => {
+                const stats = [];
+                const today = new Date();
+                const dayOfWeek = today.getDay(); 
+                const startOfWeek = new Date(today);
+                startOfWeek.setDate(today.getDate() - dayOfWeek);
+
+                for (let i = 0; i < 7; i++) {
+                    const d = new Date(startOfWeek);
+                    d.setDate(startOfWeek.getDate() + i);
+                    const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                    stats.push(history[dateStr] || 0);
+                }
+                return stats;
+            };
+
+            if (loading) return null;
+
+            return (
+                <div className="relative min-h-screen bg-[#0a0a0c] text-white font-sans overflow-hidden selection:bg-indigo-500/30">
+                    
+                    {/* Background */}
+                    <div className="fixed inset-0 pointer-events-none z-0">
+                        <div className="absolute inset-0 opacity-[0.03]" style={{backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`}}></div>
+                        <div className="absolute top-[-20%] left-[-10%] w-[800px] h-[800px] bg-indigo-900/40 rounded-full blur-[120px] mix-blend-screen transition-transform duration-1000 ease-out" style={{ transform: `translate(${mousePos.x * -1}px, ${mousePos.y * -1}px)` }}></div>
+                        <div className="absolute bottom-[-20%] right-[-10%] w-[600px] h-[600px] bg-fuchsia-900/30 rounded-full blur-[100px] mix-blend-screen transition-transform duration-1000 ease-out" style={{ transform: `translate(${mousePos.x * 2}px, ${mousePos.y * 2}px)` }}></div>
+                    </div>
+
+                    <div className="relative z-10 max-w-md mx-auto h-screen flex flex-col bg-white/0 backdrop-blur-[0px]">
+                        <div className="flex-1 overflow-y-auto no-scrollbar pt-8 pb-24 px-6">
+                            {activeTab === 'home' 
+                                ? <HomeView habits={habits} onToggle={toggleHabit} onDelete={deleteHabit} />
+                                : <StatsView habits={habits} weeklyStats={getWeeklyStats()} />
+                            }
+                        </div>
+
+                        {/* Navigation */}
+                        <div className="fixed bottom-6 left-6 right-6 z-50 max-w-md mx-auto">
+                            <div className="bg-[#1c1c1e]/90 backdrop-blur-xl border border-white/10 rounded-3xl p-2 shadow-2xl shadow-black/50 flex items-center justify-between relative">
+                                <div className="flex flex-1 justify-around items-center">
+                                    <NavButton icon={Home} isActive={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Habits" />
+                                    <div className="w-12"></div>
+                                    <NavButton icon={PieChart} isActive={activeTab === 'stats'} onClick={() => setActiveTab('stats')} label="Analytics" />
+                                </div>
+                                <div className="absolute left-1/2 -translate-x-1/2 -top-6">
+                                    <button onClick={() => setIsModalOpen(true)} className="w-14 h-14 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-2xl shadow-lg shadow-indigo-500/40 flex items-center justify-center text-white transform hover:scale-105 active:scale-95 transition-all duration-300 border-2 border-[#1c1c1e]">
+                                        <Plus className="w-7 h-7" strokeWidth={3} />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <AddHabitModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onAdd={addHabit} />
+                </div>
+            );
+        };
+
+        // --- SUB COMPONENTS ---
+
+        const HomeView = ({ habits, onToggle, onDelete }) => {
+            const calendarDays = getCalendarDays();
+            const completedCount = habits.filter(h => h.completed).length;
+            const progress = habits.length > 0 ? (completedCount / habits.length) * 100 : 0;
+
+            return (
+                <div className="space-y-8 animate-fade-in">
+                    <header>
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h1 className="text-2xl font-bold text-white tracking-tight">Today's Focus</h1>
+                                <p className="text-sm text-gray-400">Keep up the momentum</p>
+                            </div>
+                        </div>
+                        <div className="flex justify-between items-center bg-white/5 backdrop-blur-md rounded-2xl p-3 border border-white/5">
+                            {calendarDays.map((d, i) => (
+                                <div key={i} className={`flex flex-col items-center justify-center w-10 h-14 rounded-xl text-xs font-medium transition-all ${d.isToday ? 'bg-gradient-to-b from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 scale-110' : 'text-gray-500'}`}>
+                                    <span className="opacity-80 text-[10px] uppercase">{d.day}</span>
+                                    <span className="text-base font-bold">{d.date}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </header>
+                    <div className="relative overflow-hidden rounded-3xl bg-[#151518] border border-white/5 p-6 shadow-2xl">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-[40px] -mr-10 -mt-10"></div>
+                        <div className="relative z-10">
+                            <div className="flex justify-between items-end mb-4">
+                                <div>
+                                    <span className="text-gray-400 text-xs font-bold tracking-wider uppercase">Daily Progress</span>
+                                    <div className="text-3xl font-bold mt-1 flex items-baseline">{Math.round(progress)}%<span className="text-sm text-gray-500 font-normal ml-2">completed</span></div>
+                                </div>
+                                <Zap className={`w-6 h-6 ${progress === 100 ? 'text-yellow-400 fill-yellow-400' : 'text-gray-600'}`} />
+                            </div>
+                            <div className="h-2 w-full bg-gray-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 transition-all duration-1000 ease-out" style={{ width: `${progress}%` }}></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-lg font-semibold text-white">Your Habits</h2>
+                            <span className="text-xs bg-white/10 px-2 py-1 rounded-md text-gray-400">{habits.length} Active</span>
+                        </div>
+                        <div className="space-y-3">
+                            {habits.map((habit, index) => (
+                                <HabitCard key={habit.id} habit={habit} index={index} onToggle={() => onToggle(habit.id)} onDelete={() => onDelete(habit.id)} />
+                            ))}
+                            {habits.length === 0 && <div className="text-center text-gray-500 py-10">No habits yet. Click + to start.</div>}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const StatsView = ({ habits, weeklyStats }) => {
+            // New Logic: Calculate completion percentage per category
+            const categoryStats = {};
+            
+            habits.forEach(h => {
+                if (!categoryStats[h.category]) {
+                    categoryStats[h.category] = { total: 0, completed: 0 };
+                }
+                categoryStats[h.category].total += 1;
+                if (h.completed) {
+                    categoryStats[h.category].completed += 1;
+                }
+            });
+            
+            const total = habits.length;
+            const todayIndex = new Date().getDay();
+            const maxValue = Math.max(total, ...weeklyStats, 1);
+            
+            // Calculate stats
+            const bestStreak = habits.length > 0 ? Math.max(...habits.map(h => h.streak)) : 0;
+            const todaysCompleted = weeklyStats[todayIndex] || 0;
+            const completionRate = total > 0 ? Math.round((todaysCompleted / total) * 100) : 0;
+
+            return (
+                <div className="space-y-8 animate-fade-in">
+                    <header className="mb-6">
+                        <h1 className="text-2xl font-bold text-white tracking-tight">Analytics</h1>
+                        <p className="text-sm text-gray-400">Weekly performance</p>
+                    </header>
+                    
+                    {/* Graph */}
+                    <div className="bg-[#151518] border border-white/5 rounded-3xl p-6 relative">
+                        <div className="relative h-48 w-full">
+                            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+                                {[1, 0.75, 0.5, 0.25, 0].map((line, i) => (
+                                    <div key={i} className="w-full border-t border-white/5 h-0" style={{ top: `${(1-line)*100}%` }}></div>
+                                ))}
+                            </div>
+                            <div className="absolute inset-0 flex items-end justify-between space-x-3 px-2">
+                                {weeklyStats.map((value, i) => {
+                                    const height = (value / maxValue) * 100;
+                                    const isToday = i === todayIndex;
+                                    return (
+                                        <div key={i} className="flex flex-col items-center flex-1 h-full justify-end group cursor-pointer">
+                                            <div className="mb-2 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] bg-white text-black px-2 py-1 rounded font-bold absolute top-0 transform -translate-y-1/2 shadow-xl z-20 whitespace-nowrap">{value} done</div>
+                                            <div className={`w-full rounded-t-md relative overflow-hidden transition-all duration-500 z-10 ${isToday ? 'shadow-[0_0_15px_rgba(129,140,248,0.5)]' : ''}`} style={{ height: `${Math.max(2, height)}%`, background: isToday ? 'linear-gradient(to top, rgba(79, 70, 229, 0.8), rgba(168, 85, 247, 1))' : value > 0 ? 'linear-gradient(to top, rgba(79, 70, 229, 0.4), rgba(168, 85, 247, 0.6))' : 'rgba(255,255,255,0.05)' }}>
+                                                {value > 0 && <div className="absolute top-0 left-0 right-0 h-[2px] bg-purple-300/80 shadow-[0_0_10px_rgba(216,180,254,0.8)]"></div>}
+                                            </div>
+                                            <div className={`mt-3 text-[10px] font-medium uppercase tracking-wider transition-colors ${isToday ? 'text-indigo-400 font-bold' : 'text-gray-500'}`}>{WEEK_DAYS[i]}</div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {/* Stats Grid */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-[#151518] border border-white/5 rounded-3xl p-5 flex flex-col justify-between h-32 group hover:border-white/10 transition-colors">
+                           <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                             <Zap className="w-4 h-4 text-orange-400" />
+                           </div>
+                           <div>
+                             <div className="text-2xl font-bold text-white">{bestStreak}</div>
+                             <div className="text-xs text-gray-500 group-hover:text-gray-400">Best Streak</div>
+                           </div>
+                        </div>
+                        <div className="bg-[#151518] border border-white/5 rounded-3xl p-5 flex flex-col justify-between h-32 group hover:border-white/10 transition-colors">
+                           <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                             <Check className="w-4 h-4 text-blue-400" />
+                           </div>
+                           <div>
+                             <div className="text-2xl font-bold text-white">{completionRate}%</div>
+                             <div className="text-xs text-gray-500 group-hover:text-gray-400">Today's Rate</div>
+                           </div>
+                        </div>
+                    </div>
+
+                    {/* Focus Areas - Completion Rate per Category */}
+                    <div className="bg-[#151518] border border-white/5 rounded-3xl p-6">
+                        <h3 className="font-semibold text-gray-200 mb-4">Category Completion</h3>
+                        <div className="space-y-4">
+                          {Object.entries(categoryStats).map(([cat, stats], i) => {
+                            const percentage = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0;
+                            return (
+                            <div key={cat} className="group">
+                              <div className="flex justify-between text-xs mb-1.5">
+                                <span className="text-gray-300 font-medium group-hover:text-white transition-colors">{cat}</span>
+                                <span className="text-gray-500">{stats.completed}/{stats.total} ({percentage}%)</span>
+                              </div>
+                              <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
+                                <div 
+                                  className={`h-full rounded-full bg-gradient-to-r shadow-[0_0_10px_rgba(0,0,0,0.3)] ${
+                                    cat === 'Health' ? 'from-cyan-400 to-blue-500' :
+                                    cat === 'Mind' ? 'from-red-500 to-rose-600' :
+                                    cat === 'Work' ? 'from-violet-500 to-purple-600' :
+                                    cat === 'Growth' ? 'from-emerald-400 to-green-500' :
+                                    ['from-pink-500 to-rose-500', 'from-cyan-400 to-blue-500', 'from-amber-400 to-orange-500'][i % 3]
+                                  }`}
+                                  style={{ width: `${percentage}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          )})}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const HabitCard = ({ habit, onToggle, onDelete, index }) => {
+            return (
+                <div className="group relative" style={{ animation: `slideUp 0.5s ease-out ${index * 0.05}s forwards`, opacity: 0, transform: 'translateY(20px)' }}>
+                    <div className={`relative overflow-hidden rounded-2xl border transition-all duration-300 ease-out cursor-pointer ${habit.completed ? 'bg-[#151518] border-indigo-500/30' : 'bg-[#1a1a1d] border-white/5 hover:border-white/10'}`} onClick={onToggle}>
+                        <div className={`absolute inset-0 opacity-20 transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] bg-gradient-to-r ${habit.color}`} style={{ transform: habit.completed ? 'translateX(0%)' : 'translateX(-100%)' }}></div>
+                        <div className="relative p-4 flex items-center justify-between z-10">
+                            <div className="flex items-center gap-4">
+                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${habit.completed ? 'bg-indigo-500 border-indigo-500 scale-110' : 'border-gray-600 hover:border-gray-400'}`}>
+                                    {habit.completed && <Check className="w-3.5 h-3.5 text-white" strokeWidth={4} />}
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className={`font-medium text-base transition-colors ${habit.completed ? 'text-gray-500 line-through' : 'text-gray-100'}`}>{habit.title}</span>
+                                    <span className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mt-0.5">{habit.category}</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center">
+                                <div className={`flex items-center text-xs font-medium mr-4 transition-colors ${habit.completed ? 'text-indigo-400' : 'text-gray-600'}`}>
+                                    <Zap className="w-3 h-3 mr-1" />{habit.streak}
+                                </div>
+                                <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="text-gray-600 hover:text-red-400 transition-colors p-1"><Trash2 className="w-4 h-4" /></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const NavButton = ({ icon: Icon, isActive, onClick, label }) => (
+            <button onClick={onClick} className={`flex flex-col items-center justify-center w-16 transition-all duration-300 ${isActive ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+                <div className={`p-1.5 rounded-xl transition-all duration-300 ${isActive ? 'bg-white/10' : 'bg-transparent'}`}><Icon className={`w-6 h-6 ${isActive ? 'stroke-[2.5px]' : 'stroke-2'}`} /></div>
+                <span className={`text-[10px] mt-1 font-medium transition-all ${isActive ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden'}`}>{label}</span>
+            </button>
+        );
+
+        const AddHabitModal = ({ isOpen, onClose, onAdd }) => {
+            const [title, setTitle] = useState('');
+            const [category, setCategory] = useState('Health');
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center px-4 pb-4 sm:pb-0">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity" onClick={onClose}></div>
+                    <div className="relative w-full max-w-sm bg-[#1c1c1e] border border-white/10 rounded-3xl p-6 shadow-2xl animate-fade-in">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-xl font-bold text-white">New Routine</h2>
+                            <button onClick={onClose} className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors"><X className="w-5 h-5 text-gray-400" /></button>
+                        </div>
+                        <div className="space-y-5">
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-2">Habit Name</label>
+                                <input type="text" placeholder="e.g. Read 10 mins" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors" />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-2">Area</label>
+                                <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                                    {['Health', 'Mind', 'Work', 'Growth'].map(cat => (
+                                        <button key={cat} onClick={() => setCategory(cat)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${category === cat ? 'bg-indigo-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>{cat}</button>
+                                    ))}
+                                </div>
+                            </div>
+                            <button onClick={() => { if(title) onAdd(title, category); setTitle(''); }} className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-bold text-white shadow-lg shadow-indigo-900/40 hover:scale-[1.02] active:scale-[0.98] transition-all">Create Habit</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
